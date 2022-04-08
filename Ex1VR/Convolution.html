@@ -156,7 +156,7 @@ function init () {
     //display image by default
     if(source == null)
     {
-        source = "image";
+        source = "img1";
     }
 
     var texture = null;
@@ -288,72 +288,12 @@ function readCalib(){
 
 }
 
-    if(source == "image")
-    {
-        var file = './img2';
+        var file = './'+source;
         texture = new THREE.TextureLoader().load( file+'/im0.png', function ( textureL ) { 
             var textureR = new THREE.TextureLoader().load( file+'/im1.png', function ( textureR ) { 
                 readTextFile(file, textureL, textureR);
             });
         });
-
-        
-    }
-    else if (source == "video")
-    {
-        video = document.createElement('video');
-        video.src = 'video.mp4';
-        video.load();
-        video.muted = true;
-        video.loop = true;
-
-        video.onloadeddata = function () 
-        { 
-            texture = new THREE.VideoTexture( video );
-            texture.minFilter = THREE.NearestFilter;
-            texture.magFilter = THREE.NearestFilter;
-            texture.generateMipmaps = false; 
-            texture.format = THREE.RGBFormat;
-            height = video.videoHeight;
-            width = video.videoWidth;
-            mats =ImgProc.imgproc(texture, height, width, canvas, context, renderer);
-            imageProcessing = mats[mats.length-1];
-            imageProcessingMaterial = imageProcessing.scene.children[0].material;
-            createScene(imageProcessing.rtt.texture, height, width, texture)
-            video.play();
-        }
-    }
-    else if(source == "webcam")
-    {
-        //TODO
-        const constraints = { video: { width: 1920, height: 1080, facingMode: 'user' } };
-        navigator.mediaDevices.getUserMedia( constraints ).then( function ( stream ) 
-        {
-            video = document.createElement('video');
-            video.srcObject = stream;
-            video.play();
-            video.onloadeddata = function () 
-            { 
-                texture = new THREE.VideoTexture( video );
-                texture.minFilter = THREE.NearestFilter;
-                texture.magFilter = THREE.NearestFilter;
-                texture.generateMipmaps = false; 
-                texture.format = THREE.RGBFormat;
-                height = video.videoHeight;
-                width = video.videoWidth;
-                mats =ImgProc.imgproc(texture, height, width, canvas, context, renderer);
-                imageProcessing = mats[mats.length-1];
-                imageProcessingMaterial = imageProcessing.scene.children[0].material;
-                createScene(imageProcessing.rtt.texture, height, width, texture)
-                video.play();
-            }
-        });
-    }
-    else
-    {
-        console.log("Unsupported source. Input 'image','video' or 'webcam'.");
-    }
-	
 	window.addEventListener( 'resize', onWindowResize, false );
 }
 
