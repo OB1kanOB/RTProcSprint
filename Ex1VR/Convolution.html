@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+			margin: 0;
+			padding: 0;
+			width: 100%;
+			height: 100%;
+			
+			margin: 0;
+			overflow: hidden;
+			background-color: #AAAAAA;
+			background-attachment: fixed !important;
+			}
+		</style>
+		<style>
+			body {
+				font-family: Monospace;
+				margin: 0px;
+				overflow: hidden;
+			}
+		</style>
+	</head>
+	<body>
+        <canvas id="myCanvas" width =355.5 height=200 style="position: relative; object-fit: contain;"></canvas>
+        <h3 style="position: relative; object-fit: contain;">Hover over the Image to change focal point</h3>
+          <script type="text/javascript" src="https://ajax.googleapis.com/ajax/libs/jquery/1.8/jquery.min.js"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/stats.js/16/Stats.min.js" integrity="sha512-by6gRzSfA6HGshqED4Jnc6n/jJ9ojBvjbEbCvsrLzErlIiWswh1qYfYnvSzZg8SmbqVCk/v0XwlpGzJxIDPILw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script type="module">
+    
+
+
+import * as THREE from 'https://cdn.skypack.dev/three@0.136.0/build/three.module.js';
+import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+import { GUI } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/libs/lil-gui.module.min.js';
+import { WEBGL } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/WebGL.js';
+import { VRButton } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/webxr/VRButton.js';
+import * as ImgProc from './Convolution.js';
+
+function IVprocess ( imageProcessing, renderer )
+{
+    renderer.xr.enabled = false;
+	renderer.setRenderTarget( imageProcessing.rtt );
+	renderer.render ( imageProcessing.scene, imageProcessing.orthoCamera ); 	
+	renderer.setRenderTarget( null );
+    renderer.xr.enabled = true;
+};
+
+var stats = new Stats();
+var camera, controls, scene, renderer, container;
+var context, canvas;
+
+
+
+document.getElementById("myCanvas").addEventListener( 'mousemove', draw, false );
+
+var imageProcessing, imageProcessingR, imageProcessingMaterial, imageProcessingMaterialR;
+
+function draw(e){
+    var canvas = document.getElementById("myCanvas");
+    var context = canvas.getContext("2d");
+    var posx = e.clientX;
+    var posy = e.clientY;
+    //context.fillStyle = "#000000";
+    //context.fillRect (posx, posy, 4, 4);
+
+    console.log(posx/355.5);
+    console.log(posy/200);
+    imageProcessingMaterial.uniforms.xpos.value = posx/355.5;
+    imageProcessingMaterial.uniforms.xpos.value = posy/200;
+    imageProcessingMaterial.needsUpdate = true;
+
+    imageProcessingMaterialR.uniforms.xpos.value = posx/355.5;
+    imageProcessingMaterialR.uniforms.xpos.value = posy/200;
+    imageProcessingMaterialR.needsUpdate = true;
+
+}
+
+// GUI
+var gui;
+var source;
+var video;
+
+init();
+animate();
+
+var mats;
+
+function init () {
+	//stats.showPanel( 0 ); // 0: fps, 1: ms, 2: mb, 3+: custom
+    //document.body.appendChild( stats.dom );
+    if ( WEBGL.isWebGL2Available() === false ) {
+		document.body.appendChild( WEBGL.getWebGL2ErrorMessage() );
+	}	
+    container = document.createElement( 'div' );
+	document.body.appendChild( container );
+	
+    canvas = document.createElement( 'canvas' );
+	context = canvas.getContext( 'webgl2' );
+	document.body.appendChild( canvas );
+
+	scene = new THREE.Scene(); 
+    renderer = new THREE.WebGLRenderer( {  canvas: canvas, context: context});
+
+    camera = new THREE.PerspectiveCamera( 75, window.innerWidth / window.innerHeight, 0.001, 10 );
+	camera.position.z = 2;
+    camera.position.y = 0;
+    camera.layers.enable( 2 ); // render left view when no stereo available
+	controls = new OrbitControls( camera, renderer.domElement );
+	controls.minDistance = 0.005;
+	controls.maxDistance = 10.0;
+	controls.enableRotate = true;
+	controls.addEventListener( 'change', render );
+	controls.update();
+
+    /*
+	renderer = new THREE.WebGLRenderer( {  canvas: canvas, context: context});
+	renderer.autoClear = false;
+	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	renderer.shadowMap.enabled = false;
+
+	container.appendChild( renderer.domElement );
+*/
+
+    //renderer = new THREE.WebGLRenderer();
+    renderer.setPixelRatio( window.devicePixelRatio );
+    renderer.setSize( window.innerWidth, window.innerHeight );
+    renderer.xr.enabled = true;
+    renderer.xr.setReferenceSpaceType( 'local' );
+    container.appendChild( renderer.domElement );
+
+	document.body.appendChild( VRButton.createButton( renderer ) );
+
+	
+
+    //Parse URL
+    const urlParams = new URLSearchParams(window.location.search);
+    source = urlParams.get('sourceimage')
+    console.log(source);
+
+    //display image by default
+    if(source == null)
+    {
+        source = "image";
+    }
+
+    var texture = null;
+    var height = 0;
+    var width = 0;
+
+function readTextFile(file, textureL, textureR)
+{
+    var rawFile = new XMLHttpRequest();
+    rawFile.open("GET", file+'/disp0.pfm', true);
+    //rawFile.responseType = "blob";
+    rawFile.responseType = 'arraybuffer';
+    //rawFile.setRequestHeader("Content-Type", "application/json;charset=UTF-8");
+    //rawFile.overrideMimeType('text\/plain; charset=x-user-defined');
+    rawFile.onreadystatechange = function ()
+    {
+        if(rawFile.readyState === 4)
+        {
+            if(rawFile.status === 200 || rawFile.status == 0)
+            {
+                var allText = rawFile.response;
+                var uInt8Array = new Uint8Array(this.response);
+                uInt8Array = uInt8Array.slice(23);
+                var f32arr = new Float32Array(uInt8Array.buffer);
+
+                var c = document.getElementById("myCanvas");
+                var ctx = c.getContext("2d");
+                var base_image = new Image();
+                base_image.src = file+'/im0.png';
+                base_image.onload = function(){
+                    scaleToFit(this);
+                }
+
+                function scaleToFit(img){
+                    // get the scale
+                    var scale = Math.min(c.width / img.width, c.height / img.height);
+                    // get the top left position of the image
+                    var x = (c.width / 2) - (img.width / 2) * scale;
+                    var y = (c.height / 2) - (img.height / 2) * scale;
+                    ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+                }
+
+                var rawFileR = new XMLHttpRequest();
+                rawFileR.open("GET", file+'/disp1.pfm', true);
+                //rawFile.responseType = "blob";
+                rawFileR.responseType = 'arraybuffer';
+                rawFileR.onreadystatechange = function ()
+                {
+                    if(rawFileR.readyState === 4)
+                    {
+                        if(rawFileR.status === 200 || rawFileR.status == 0)
+                        {
+
+                            var allTextR = rawFileR.response;
+                            var uInt8ArrayR = new Uint8Array(this.response);
+                            uInt8ArrayR = uInt8ArrayR.slice(23);
+                            var f32arrR = new Float32Array(uInt8ArrayR.buffer);
+
+                            var calibFile = new XMLHttpRequest();
+                            calibFile.open("GET", file+'/calib.txt', true);
+                            calibFile.onreadystatechange = function (){
+
+                                var calibdata = calibFile.responseText;
+                                if(calibdata != "")
+                                {
+                                    var cdarr = calibdata.split('\n');
+                                    var cam0 = cdarr[0].split('=')[1];
+                                    var cam0arr1 = cam0.split(';')[0].slice(1).split(" ");
+                                    var cam0arr2 = cam0.split(';')[1].slice(1).split(" ");
+                                    var cam0arr3 = cam0.split(';')[2].slice(1,cam0.split(';')[2].length-1).split(" ");
+
+                                    var cam1 = cdarr[1].split('=')[1];
+                                    var cam1arr1 = cam1.split(';')[0].slice(1).split(" ");
+                                    var cam1arr2 = cam1.split(';')[1].slice(1).split(" ");
+                                    var cam1arr3 = cam1.split(';')[2].slice(1,cam1.split(';')[2].length-1).split(" ");
+
+                                    var f = cam0arr1[0];
+                                    var doffs = cam1arr1[0] - cam0arr1[0];
+                                    //var doffs = cdarr[2].split('=')[1];
+                                    var baseline = cdarr[3].split('=')[1];
+
+                                    var zarr = [], zarrR = [];
+                                    var min = 1000000;
+                                    var max = 0;
+                                    var minR = 1000000;
+                                    var maxR = 0;
+                                    for(var i = 0; i<f32arr.length; i++)
+                                    {
+                                        zarr[i] = parseFloat(baseline) * parseFloat(f)/(f32arr[i]+doffs);
+                                        if(zarr[i] < min) min = zarr[i];
+                                        if(zarr[i] > max) max = zarr[i];
+                                        zarrR[i] = parseFloat(baseline) * parseFloat(f)/(f32arrR[i]+doffs);
+                                        if(zarrR[i] < minR) minR = zarr[i];
+                                        if(zarrR[i] > maxR) maxR = zarr[i];
+                                    }
+
+                                    for(var i = 0; i<f32arr.length; i++)
+                                    {
+                                        zarr[i] = (max-zarr[i])/(max-min) * 255;
+                                    }
+                                    for(var i = 0; i<f32arrR.length; i++)
+                                    {
+                                        zarrR[i] = (maxR-zarrR[i])/(maxR-minR) * 255;
+                                    }
+
+                                    height = texture.image.height;
+                                    width = texture.image.width;
+                                    mats =ImgProc.imgproc(texture, zarr, height, width, canvas, context, renderer);
+                                    imageProcessing = mats[mats.length-1];
+                                    imageProcessingMaterial = imageProcessing.scene.children[0].material;
+                                    var matsR = ImgProc.imgproc(texture, zarrR, height, width, canvas, context, renderer)
+                                    imageProcessingR = matsR[matsR.length-1];
+                                    imageProcessingMaterialR = imageProcessingR.scene.children[0].material;
+                                    createScene(imageProcessing.rtt.texture, imageProcessingR.rtt.texture, height, width, texture, zarr);
+                                }
+                            }
+                            calibFile.send(null);
+                        }
+                    }
+                }
+                rawFileR.send(null);
+            }
+        }
+    }
+    rawFile.send(null);
+}
+
+function readCalib(){
+
+}
+
+    if(source == "image")
+    {
+        var file = './img2';
+        texture = new THREE.TextureLoader().load( file+'/im0.png', function ( textureL ) { 
+            var textureR = new THREE.TextureLoader().load( file+'/im1.png', function ( textureR ) { 
+                readTextFile(file, textureL, textureR);
+            });
+        });
+
+        
+    }
+    else if (source == "video")
+    {
+        video = document.createElement('video');
+        video.src = 'video.mp4';
+        video.load();
+        video.muted = true;
+        video.loop = true;
+
+        video.onloadeddata = function () 
+        { 
+            texture = new THREE.VideoTexture( video );
+            texture.minFilter = THREE.NearestFilter;
+            texture.magFilter = THREE.NearestFilter;
+            texture.generateMipmaps = false; 
+            texture.format = THREE.RGBFormat;
+            height = video.videoHeight;
+            width = video.videoWidth;
+            mats =ImgProc.imgproc(texture, height, width, canvas, context, renderer);
+            imageProcessing = mats[mats.length-1];
+            imageProcessingMaterial = imageProcessing.scene.children[0].material;
+            createScene(imageProcessing.rtt.texture, height, width, texture)
+            video.play();
+        }
+    }
+    else if(source == "webcam")
+    {
+        //TODO
+        const constraints = { video: { width: 1920, height: 1080, facingMode: 'user' } };
+        navigator.mediaDevices.getUserMedia( constraints ).then( function ( stream ) 
+        {
+            video = document.createElement('video');
+            video.srcObject = stream;
+            video.play();
+            video.onloadeddata = function () 
+            { 
+                texture = new THREE.VideoTexture( video );
+                texture.minFilter = THREE.NearestFilter;
+                texture.magFilter = THREE.NearestFilter;
+                texture.generateMipmaps = false; 
+                texture.format = THREE.RGBFormat;
+                height = video.videoHeight;
+                width = video.videoWidth;
+                mats =ImgProc.imgproc(texture, height, width, canvas, context, renderer);
+                imageProcessing = mats[mats.length-1];
+                imageProcessingMaterial = imageProcessing.scene.children[0].material;
+                createScene(imageProcessing.rtt.texture, height, width, texture)
+                video.play();
+            }
+        });
+    }
+    else
+    {
+        console.log("Unsupported source. Input 'image','video' or 'webcam'.");
+    }
+	
+	window.addEventListener( 'resize', onWindowResize, false );
+}
+
+function createScene(iptex, iptexR, height, width, texture, zarr, zarrR){
+ 
+    var geometry = new THREE.PlaneGeometry( 1, height/width );
+    var material = new THREE.MeshBasicMaterial( { map: iptex, side : THREE.DoubleSide } );
+    var plane = new THREE.Mesh( geometry, material );
+    plane.position.x = 0;
+    plane.position.y = 0.3;
+    plane.receiveShadow = false;
+    plane.castShadow = false;
+    plane.scale.set(2,2,2);
+    plane.layers.set( 1 ); // display in left eye only
+    scene.add( plane );
+
+    var geometry2 = new THREE.PlaneGeometry( 1, height/width );
+    var material2 = new THREE.MeshBasicMaterial( { map: iptexR, side : THREE.DoubleSide } );
+    var plane2 = new THREE.Mesh( geometry2, material2 );
+    //plane2.position.x = -1;
+    //plane2.receiveShadow = false;
+    //plane2.castShadow = false;
+    //scene.add( plane2 );
+    plane2.position.x = 0;
+    plane2.position.y = 0.3;
+    plane2.receiveShadow = false;
+    plane2.castShadow = false;
+    plane2.scale.set(2,2,2);
+    plane2.layers.set( 2 ); // display in left eye only
+    scene.add( plane2 );
+
+    var pausePlayObj =
+    {
+        pausePlay: function () 
+        {
+            if (!video.paused)
+            {
+                console.log ( "pause" );
+                video.pause();
+            }
+            else
+            {
+                console.log ( "play" );
+                video.play();
+            }
+        },
+        add10sec: function ()
+        {
+            video.currentTime = video.currentTime + 10;
+            console.log ( video.currentTime  );
+        }
+    };
+
+    var ipprops = {xpos:0.5,ypos:0.5, sigma:1, conv:"gaussian"};
+
+    gui = new GUI();
+    if(source == "video")
+    {
+        gui.add(pausePlayObj,'pausePlay').name ('Pause/play video');
+        gui.add(pausePlayObj,'add10sec').name ('Add 10 seconds');
+    }
+    gui.add(ipprops , 'conv', ['gaussian','laplacian']).name('Convolution').onChange((conv)=>{
+        var kernel;
+        if(ipprops.conv == "gaussian")
+        {
+            kernel = ImgProc.gausKernelGen(ipprops.size, ipprops.sigma);
+        }
+        else{
+            kernel = ImgProc.lpKernelGen(ipprops.size, ipprops.sigma);
+        }
+        
+        console.log(kernel);
+        imageProcessingMaterial.uniforms.gaussianKernel.value = kernel;
+        var newSizeDiv2 = (ipprops.size % 2 == 0 ? ipprops.size : ipprops.size - 1) / 2;
+        imageProcessingMaterial.uniforms.gaussianSize.value = newSizeDiv2;
+        imageProcessingMaterial.needsUpdate = true;
+    });
+    gui.add(ipprops , 'xpos', 0.1, 1,0.01).name('xpos').onChange((size)=>{
+        if(size ==1) size++;
+        var sigma = ipprops.sigma;
+        var kernel;
+        if(ipprops.conv == "gaussian")
+        {
+            kernel = ImgProc.gausKernelGen(size, sigma);
+        }
+        else{
+            kernel = ImgProc.lpKernelGen(size, sigma);
+        }
+        
+        console.log(kernel);
+        imageProcessingMaterial.uniforms.gaussianKernel.value = kernel;
+        var newSizeDiv2 = (size % 2 == 0 ? size : size - 1) / 2;
+        imageProcessingMaterial.uniforms.xpos.value = size;
+        imageProcessingMaterial.needsUpdate = true;
+        imageProcessingMaterialR.uniforms.xpos.value = size;
+        imageProcessingMaterialR.needsUpdate = true;
+    });
+    
+    gui.add(ipprops , 'ypos', 0.1, 1,0.01).name('ypos').onChange((sigma)=>{
+        var size = ipprops.size;
+        if(size ==1) size++;
+
+        var kernel;
+        if(ipprops.conv == "gaussian")
+        {
+            kernel = ImgProc.gausKernelGen(size, sigma);
+        }
+        else{
+            kernel = ImgProc.lpKernelGen(size, sigma);
+        }
+        console.log(kernel);
+        imageProcessingMaterial.uniforms.gaussianKernel.value = kernel;
+        imageProcessingMaterial.uniforms.ypos.value = size;
+        imageProcessingMaterial.needsUpdate = true;
+        imageProcessingMaterialR.uniforms.ypos.value = size;
+        imageProcessingMaterialR.needsUpdate = true;
+    });
+}
+
+function arraySum(accumulator, a) {
+  return accumulator + a;
+}
+
+function render () {
+    var currenderTarget = renderer.getRenderTarget();
+	renderer.clear();
+	
+	//if (typeof imageProcessing !== 'undefined') 
+	//	IVprocess ( imageProcessing, renderer );
+	renderParent(imageProcessing);
+    renderParent(imageProcessingR);
+    renderer.setRenderTarget(currenderTarget);
+    
+    renderer.render( scene, camera );
+	
+}
+
+function renderParent(ip){
+    if (typeof ip !== 'undefined' && ip!= null)
+    {
+        renderParent(ip.parent);
+		IVprocess ( ip, renderer );
+    }
+}
+
+function animate() {	
+    stats.begin();
+	requestAnimationFrame(animate);
+    //renderer.setAnimationLoop( render );
+	controls.update();
+	render();
+    stats.end();
+}
+
+renderer.setAnimationLoop( function () {
+
+controls.update();
+renderParent(imageProcessing);
+    renderParent(imageProcessingR);
+renderer.render( scene, camera );
+
+} );
+
+function onWindowResize () {
+	camera.aspect = ( window.innerWidth / window.innerHeight);
+	camera.updateProjectionMatrix();
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	render();
+}
+
+</script>
+</body>
+</html>
